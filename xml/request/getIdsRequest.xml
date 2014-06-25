@@ -7,6 +7,22 @@
         <xid:idType>ean</xid:idType>
         <xid:idValue>1-56592-709-5</xid:idValue>
       </xid:id>
+      <xid:id>
+        <xid:idType>faust</xid:idType>
+        <xid:idValue>41113790</xid:idValue>
+      </xid:id>
+      <xid:id>
+        <xid:idType>ean</xid:idType>
+        <xid:idValue>9788763835534</xid:idValue>
+      </xid:id>
+      <xid:id>
+        <xid:idType>issn</xid:idType>
+        <xid:idValue>0105-287X</xid:idValue>
+      </xid:id>
+      <xid:id>
+        <xid:idType>local</xid:idType>
+        <xid:idValue>D482016220</xid:idValue>
+      </xid:id>
     </xid:getIdsRequest>
   </soapenv:Body>
 </soapenv:Envelope>
