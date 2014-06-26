@@ -36,7 +36,6 @@ test:
 install:
 	cp -f openxid.ini_INSTALL openxid.ini
 	sed -i 's/^;*aaa_credentials[ ]*=[ ]*.*/aaa_credentials = $(FORSCRED)/' openxid.ini
-	sed -i 's/^;*oxid_credentials[ ]*=[ ]*.*/oxid_credentials = $(OXIDCRED)/' openxid.ini
 	chmod -w openxid.ini
 	cp -f openxid.wsdl_INSTALL openxid.wsdl
 	sed -i 's/^.*openxid.addi.dk.*/			<soap:address location="$(OPENXID)"\/>/' openxid.wsdl

@@ -46,10 +46,6 @@ verbose = WARNING+ERROR+FATAL+STAT+TIMER+TRACE+DEBUG+Z3950
 ; format for automatic timer dump %s is the soap-action used
 ;dump_timer = openxid(%s)
 
-; Postgres credentials
-;oxid_credentials = ...
-
-
 [aaa]
 ; aaa Authentication, Access control and Accounting
 ;
@@ -79,6 +75,17 @@ aaa_ip_rights['users']['ressource']['openxidget'] = 560
 ; number of seconds to cache authentication and access rights info
 ;aaa_cache_seconds = 3600
 ;
+
+
+[solr]
+; Parameters for Solr communication
+solr_server = http://solar-p02.dbc.dk:8080/solr-4.4.0/dbc-index
+searchcode['issn'] = dkcclterm.in
+searchcode['ean'] = dkcclterm.ib
+searchcode['isbn'] = dkcclterm.ib
+searchcode['faust'] = dkcclterm.nr
+searchcode['local'] = dkcclterm.nr
+result_set = dkcclterm.id+dkcclterm.ib+dkcclterm.in+dkcclterm.tf+dkcclterm.ln
 
 
 [rest]

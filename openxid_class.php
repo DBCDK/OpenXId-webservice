@@ -21,164 +21,30 @@
 
 
 require_once("OLS_class_lib/webServiceServer_class.php");
-require_once("OLS_class_lib/oci_class.php");
-require_once("OLS_class_lib/pg_database_class.php");
 require_once("OLS_class_lib/material_id_class.php");
+require_once("OLS_class_lib/ini_extend_class.php");
 
 class openXId extends webServiceServer {
 
-  protected $db;
-  protected $idTypeTable;
+  protected $curl;
+  protected $solr_server = "";
+  protected $result_fields = "";
+  protected $searchcode = array();
 
   function __construct($inifile, $silent=false) {
     parent::__construct($inifile);
-    if ($silent) verbose::open('/dev/null');  // When instantiated by the harvester - the harvester sets up the common logfile, so all logging will then go there
-    try {
-      $this->db=new pg_database($this->config->get_value("oxid_credentials", "setup"));
-      $this->db->open();
-      $this->_prepare_postgres('GetClusterDataByTypeValuePairQuery', 'select (select name from oxid_id_types where id=ids.idtype) as idtype, idvalue from oxid_ids ids where clusterid in (select clusterid from oxid_ids where idvalue=$2 and idtype=(select id from oxid_id_types where name=lower($1)))');
-      $this->_prepare_postgres('RemoveRecordsByRecordIdQuery', 'delete from oxid_ids where recordid = $1');
-      $this->_prepare_postgres('PutIdTypeValueQuery', 'insert into oxid_ids (idtype,idvalue,recordid,clusterid) values ($1,$2,$3,$4)');
-    } catch(Exception $e) {
-      verbose::log(ERROR, "openxid:: Couldn't open database: " . $e->__toString());
-      unset($this->db);
-    }
-    // get conversion table between binary idType id's and textual idTypes
-    if (isset($this->db)) {
-      $this->idTypeTable = $this->_getIdTypeTable();
-      if (is_string($this->idTypeTable)) {
-        verbose::log(ERROR, "openxid:: Couldn't open database: " . $this->idTypeTable);
-        unset($this->db);
-      }
-    }
+    verbose::log(DEBUG, "ini " . $inifile );
+		$this->solr_server = $this->config->get_value( "solr_server", "solr" );
+		$this->searchcode = $this->config->get_value( "searchcode", "solr" );
+		$this->result_fields = $this->config->get_value( "result_set", "solr" );
+		$this->curl = new curl();
     verbose::log(TRACE, "openxid:: openxid initialized");
+
   }
 
   function __destruct() {
-    if (isset($this->db)) {
-      $this->db->close();
-    }
     parent::__destruct();
   }
-
- /** \brief _prepare_postgres
-  * @param string $name Name of the prepared statement
-  * @param string $sql SQL string to prepare
-  */
-  private function _prepare_postgres($name, $sql) {
-    try {
-      @$this->db->prepare($name, $sql);
-    } catch(fetException $e) {
-      // Do nothing - the statement has already been prepared, just continue
-    }
-  }
-
- /** \brief _getClusterDataByTypeValuePair
-  *
-  */
-  protected function _getClusterDataByTypeValuePair($type, $value) {
-    verbose::log(DEBUG, "openxid:: _getClusterDataByTypeValuePair($type, $value);");
-//    $sql = "select (select name from oxid_id_types where id=ids.idtype) as idtype, idvalue from oxid_ids ids where clusterid in (select clusterid from oxid_ids where idvalue=':idvalue' and idtype=(select id from oxid_id_types where name=lower(':idtype')))";
-//    verbose::log(DEBUG, "openxid::  -> SQL: $sql");
-    /*
-    The following SQL has already been prepared in the constructor...
-    $sql is constructed like this:
-      <select 1> finds idtype as a number with $type as input:
-        <select 1> = "select id from oxid_id_types where name=lower('$type')"
-      
-      <select 2> finds clusterid for the post, with the material given by id: $type, $value (eg. EAN, 1234567890123)
-        <select 2> = "select clusterid from oxid_ids where idvalue='$value' and idtype=(<select 1>)"
-                   = "select clusterid from oxid_ids where idvalue='$value' and idtype=(select id from oxid_id_types where name=lower('$type'))"
-      
-      <select 3> finds all material in the cluster for the found material:
-        <select 3> = "select idtype, idvalue from oxid_ids where clusterid in (<select 2>)"
-                   = "select idtype, idvalue from oxid_ids where clusterid in (select clusterid from oxid_ids where idvalue='$value' and idtype=(select id from oxid_id_types where name=lower('$type')))"
-      
-      <select 4> finds the string for idtype with the given number as input
-        <select 4> = "select name from oxid_id_types where id=$num"
-      
-      <select 5> is in principle the same as <select 3> - but now fetched idtype as a string:
-        <select 5> = "select <select 4>, idvalue from oxid_ids where clusterid in (select clusterid from oxid_ids where idvalue='$value' and idtype=(select id from oxid_id_types where name=lower('$type')))"
-                   = "select (select name from oxid_id_types where id=ids.idtype), idvalue from oxid_ids ids where clusterid in (select clusterid from oxid_ids where idvalue='$value' and idtype=(select id from oxid_id_types where name=lower('$type')))"
-    */
-    $result = array();
-    try {
-      $this->db->bind('idtype', $type);    // $1
-      $this->db->bind('idvalue', $value);  // $2
-      $this->db->execute('GetClusterDataByTypeValuePairQuery');
-      while( $row = $this->db->get_row() ) { 
-        $result[] = $row;
-      }
-    } catch(Exception $e) {
-      verbose::log(ERROR, "openxid:: Couldn't get cluster data: " . $e->__toString());
-      return "could not reach database";
-    }
-    return $result;
-  }
-
-
- /** \brief _removeRecordsByRecordId
-  *
-  */
-  protected function _removeRecordsByRecordId($recordId) {
-    verbose::log(DEBUG, "openxid:: _removeRecordsByRecordId($recordId);");
-    if (empty($recordId)) return false;
-    try {
-      $this->db->bind('recordid', $recordId);  // $1
-      $this->db->execute('RemoveRecordsByRecordIdQuery');
-    } catch(Exception $e) {
-      verbose::log(ERROR, "openxid:: Couldn't remove records: " . $e->__toString());
-      return "could not reach database";
-    }
-    return false;
-  }
-
-
- /** \brief _getIdTypeTable
-  *
-  */
-  protected function _getIdTypeTable() {
-    verbose::log(DEBUG, "openxid:: _getIdTypeTable();");
-    try {
-      $sql = "select id, name from oxid_id_types";
-      verbose::log(DEBUG, "openxid::  -> SQL: $sql");
-      $this->db->set_query($sql);
-      $this->db->execute();
-      while( $row = $this->db->get_row() ) {
-        $result[intval($row['id'])] = $row['name'];
-        $result[$row['name']] = intval($row['id']);  // Both ways
-      }
-    } catch(Exception $e) {
-      verbose::log(ERROR, "openxid:: Couldn't get ID type table: " . $e->__toString());
-      return "could not read ID Types";
-    }
-    return $result;
-  }
-
- /** \brief _putIdTypeValue
-  *
-  */
-  protected function _putIdTypeValue($recordId, $clusterId, $idType, $idValue) {
-    verbose::log(DEBUG, "openxid:: _putIdTypeValue($recordId, $clusterId, $idType, $idValue);");
-    $recordId = strip_tags($recordId);
-    $clusterId = strip_tags($clusterId);
-    $idType = strtolower(strip_tags($idType));
-    if (!array_key_exists($idType, $this->idTypeTable)) return "invalid idType";
-    $idType = $this->idTypeTable[$idType];
-    $idValue = strip_tags($idValue);
-    try {
-      $this->db->bind('idtype', $idType);        // $1
-      $this->db->bind('idvalue', $idValue);      // $2
-      $this->db->bind('recordid', $recordId);    // $3
-      $this->db->bind('clusterid', $clusterId);  // $4
-      $this->db->execute('PutIdTypeValueQuery');
-    } catch(Exception $e) {
-      verbose::log(ERROR, "openxid:: Couldn't put type value pair: " . $e->__toString());
-      return "could not reach database";
-    }
-    return false;
-  }
-
 
  /** \brief _normalize
   *
@@ -186,17 +52,16 @@ class openXId extends webServiceServer {
   protected function _normalize($idType, $idValue) {
     switch ($idType) {
       case 'ean':
-        // Check if number is an EAN number
-        $ean = materialId::validateEAN(materialId::normalizeEAN($idValue));
-        if ($ean) return $ean;  // Yes it was...
-        // Check if number is an ISBN number
-        $idValue = materialId::validateISBN(materialId::normalizeISBN($idValue));
-        if ($idValue === 0) return 0;  // No - it was neither a EAN nor an ISBN number
-        return materialId::convertISBNToEAN($idValue);  // It was an ISBN number - convert to EAN
+        // Normalize an EAN number
+        $ean = materialId::normalizeEAN($idValue);
+        if (strlen($ean) == 13) return $ean;  // Yes it was...
+        // Normalize an ISBN number
+        $isbn = materialId::normalizeISBN($idValue);
+        return $isbn;
       case 'issn':
-        return materialId::validateISSN(materialId::normalizeISSN($idValue));
+        return materialId::normalizeISSN($idValue);
       case 'faust':
-        return materialId::validateFaust(materialId::normalizeFaust($idValue));
+        return materialId::normalizeFaust($idValue);
       case 'local':
         return $idValue;
       default:
@@ -221,6 +86,17 @@ class openXId extends webServiceServer {
     return $res;
   }
 
+ /** \brief do_search
+  *
+  */
+  protected function do_search($search_string, $result_fields ) {
+	  $url_append = "/select?q=" . $search_string . "&rows=999&fl=" . $result_fields . "&wt=phps&defType=edismax&stopwords=true&lowercaseOperators=true" ;
+	  verbose::log(DEBUG, 'URL ' . $this->solr_server . $url_append );
+	  $get_result = $this->curl->get( $this->solr_server . $url_append );
+	  $result_array[] = @ unserialize( $get_result );
+	  verbose::log(DEBUG, 'RES <' . $get_result . ">" );
+		return $result_array;
+	}
 // =============================================================================
 
 
@@ -236,21 +112,18 @@ class openXId extends webServiceServer {
       $xid_error = &$xid_getIdsResponse->_value->error;
       $xid_error->_value = "authentication error";
       $xid_error->_namespace = $this->xmlns['xid'];
+			verbose::log(ERROR, "openxid:: getIdsRequest(...); - authentication error");
       return $ret;
     }
 
-    if (!isset($this->db)) {
-      $xid_error = &$xid_getIdsResponse->_value->error;
-      $xid_error->_value = "could not reach database";
-      $xid_error->_namespace = $this->xmlns['xid'];
-      return $ret;
-    }
-
+		verbose::log(ERROR, "WUT <" . print_r($param, true) . '>' );
     $paramId = is_array($param->id) ? $param->id : array($param->id);
+		verbose::log(ERROR, "WAT <" . print_r($paramId, true) . '>' );
     if (empty($paramId)) {
       $xid_error = &$xid_getIdsResponse->_value->error;
       $xid_error->_value = "invalid id";
       $xid_error->_namespace = $this->xmlns['xid'];
+			verbose::log(ERROR, "openxid:: getIdsRequest(...); - invalid request <" . print_r($param, true) . '>' );
       return $ret;
     }
 
@@ -260,25 +133,140 @@ class openXId extends webServiceServer {
       $item['idType'] = strtolower(strip_tags($id->_value->idType->_value));
       $item['idValue'] = strip_tags($id->_value->idValue->_value);
       // check if idType is supported
-      if (!array_key_exists($item['idType'], $this->idTypeTable)) {
+      if (!array_key_exists($item['idType'], $this->searchcode)) {
+				verbose::log(ERROR, "invalid idType in request <" . $item['idType'] . '>');
         $item['error'] = "invalid idType";
         $clusterData[] = $item;
         continue;  // Next iteration
       }
       // Normalize
       $idValue = self::_normalize($item['idType'], $item['idValue']);
-      if ($idValue == 0) {
+      if ($idValue === 0) {
+				verbose::log(ERROR, "invalid id in request <" . $item['idValue'] . '>');
         $item['error'] = "invalid id"; 
         $clusterData[] = $item;
         continue;  // Next iteration
       }
-      // Get data from db
-      $newClusterData = $this->_getClusterDataByTypeValuePair($item['idType'], $idValue);
-      if (is_string($newClusterData)) {
-        $item['error'] = "could not reach database"; 
-        $clusterData[] = $item;
-        continue;  // Next iteration
-      }
+
+			verbose::log(TRACE, 'REQUEST type <' . $this->searchcode[ $item['idType'] ] . "> value <" . $idValue . ">" );
+			$search_string = "" . $this->searchcode[ $item ['idType'] ] . "%3A" . $idValue ;
+			verbose::log(TRACE, 'SEARCH ' . $search_string );
+			$result_array = self::do_search($search_string, "unit.id" );
+			verbose::log(DEBUG, 'UNITID_RESULT ' . print_r($result_array, true) );
+
+
+			// Uniqing unit.id's
+			$num_of_rows_found = $result_array[0]['response']['numFound'];
+			if ( $num_of_rows_found > 999 ) {
+				verbose::log(WARNING, 'More than 999 unit.id hits on ' . $search_string . ' (got : ' . $num_of_rows_found . ") rest is ignored");
+			}
+			$unit_ids = array();
+
+			$docs = array();
+			$docs = $result_array[0]['response']['docs'];
+			foreach ( $docs as $tempodocs ) {
+				if ( ! isset( $unit_ids[ $tempodocs['unit.id' ] ] ) ) {
+					// search string is "unit.id:unit:<unit.id>" and ['unit.id'] contains "unit:<unit.id>"
+					$unit_ids[ $tempodocs['unit.id' ] ] = substr_replace( $tempodocs['unit.id' ], ".id%3Aunit%5C%3A", 4, 1);
+				}
+			}
+
+			// For each unit.id found in previous search we now have to find the wanted ids of 
+			// various types.
+			$newClusterData = array();
+			foreach ( $unit_ids as $tempo ) {
+				$result_array = self::do_search($tempo, $this->result_fields);
+				verbose::log(DEBUG, 'TERMS_RESULT ' . print_r($result_array, true) );
+
+				$docs = array();
+				$docs = $result_array[0]['response']['docs'];
+				foreach ( $docs as $tempodoc ) {
+					$recarr = array();
+
+					if ( isset( $tempodoc['dkcclterm.id'] ) ) {
+						// 001 *a
+						$recarr = $tempodoc['dkcclterm.id'];
+						foreach ( $recarr as $temporecid ) {
+							if ( strpos( $temporecid, '_') > 0 ) {
+								continue;
+							}
+							if (is_array( $tempodoc['dkcclterm.ln'] ) ) {
+								$tmpbib = $tempodoc['dkcclterm.ln'][0];
+							} else {
+								$tmpbib = $tempodoc['dkcclterm.ln'];
+							}
+							if ($tmpbib >= 870970 and $tmpbib <= 870979 ) {
+								// There are a few records from these bases with invalid faust - this fixes that problem
+								if ( materialId::normalizeFaust($temporecid) ) {
+									$xxx['idtype'] = 'faust';
+									$xxx['idvalue'] =  materialId::normalizeFaust($temporecid);
+								} else {
+									$xxx['idtype'] = 'local';
+									$xxx['idvalue'] =  $temporecid;
+								}
+							} else {
+								$xxx['idtype'] = 'local';
+								$xxx['idvalue'] =  $temporecid;
+							}
+							$newClusterData[] = $xxx;
+						}
+					}
+					// 002 *acd
+					if ( isset( $tempodoc['dkcclterm.tf'] ) ) {
+						$recarr = $tempodoc['dkcclterm.tf'];
+						foreach ( $recarr as $temporecid ) {
+							// content of *d isn't always trustworthy as a faust
+							if ( materialId::normalizeFaust($temporecid) ) {
+								$xxx['idtype'] = 'faust';
+								$xxx['idvalue'] =  materialId::normalizeFaust($temporecid);
+							} else {
+								$xxx['idtype'] = 'local';
+								$xxx['idvalue'] =  $temporecid;
+							}
+							$newClusterData[] = $xxx;
+						}
+					}
+					// isbn
+					if ( isset( $tempodoc['dkcclterm.ib'] ) ) {
+						$recarr = $tempodoc['dkcclterm.ib'];
+						foreach ( $recarr as $temporecid ) {
+							$tmpstr = self::_normalize( 'ean', $temporecid );
+							switch ( strlen( $tmpstr ) ) {
+								case 10:
+									$xxx['idtype'] = 'isbn';
+									break;
+								case 13:
+									$xxx['idtype'] = 'ean';
+									break;
+								default:
+									verbose::log(WARNING, 'Neither isbn nor ean in ib section <' . print_r($temporecid, true) . '>' );
+									continue 2;
+									break;
+							}
+							$xxx['idvalue'] =  $tmpstr;
+							$newClusterData[] = $xxx;
+						}
+					}
+					// issn
+					if ( isset( $tempodoc['dkcclterm.in'] ) ) {
+						$recarr = $tempodoc['dkcclterm.in'];
+						foreach ( $recarr as $temporecid ) {
+							$tmpstr =  materialId::normalizeISSN($temporecid);
+							if ( strlen( $tmpstr ) == 8 ) {
+								$xxx['idtype'] = 'issn';
+								$xxx['idvalue'] =  $tmpstr;
+								$newClusterData[] = $xxx;
+							} else {
+								// This message can end up being pretty annoying because isbn also occurs here so potential isbn/ean are ignored.
+								if ( ! (strlen( $tmpstr ) == 10 || strlen( $tmpstr ) == 13) ) {
+									verbose::log(WARNING, 'Not an issn value in is section <' . print_r($temporecid, true) . '>' );
+								}
+							}
+						}
+					}
+				}
+			}
+
       if (!is_array($newClusterData) or (count($newClusterData)==0)) {
         $item['error'] = "no results found for requested id"; 
         $clusterData[] = $item;
@@ -334,96 +322,23 @@ class openXId extends webServiceServer {
   *
   */
   function updateIdRequest($param) {
-    verbose::log(DEBUG, "openxid:: updateIdRequest(...);");
-    $xid_updateIdResponse = &$ret->updateIdResponse;
-    $xid_updateIdResponse->_namespace = $this->xmlns['xid'];
-
-    if (!$this->aaa->has_right("openxidupdate", 500)) {
-      $xid_error = &$xid_updateIdResponse->_value->error;
-      $xid_error->_value = "authentication error";
-      $xid_error->_namespace = $this->xmlns['xid'];
-      return $ret;
-    }
-
-    if (!isset($this->db)) {
-      $xid_error = &$xid_updateIdResponse->_value->error;
-      $xid_error->_value = "could not reach database";
-      $xid_error->_namespace = $this->xmlns['xid'];
-      return $ret;
-    }
-
-    $recordId = strip_tags($param->recordId->_value);
-    $clusterId = strip_tags($param->clusterId->_value);
-    if (isset($param->id)) {
-      if (!is_array($param->id)) $param->id = array($param->id);  // Assure, that this is an array
-      $id = array();
-      foreach ($param->id as $item) {
-        $idType = strip_tags($item->_value->idType->_value);
-        $idValue = strip_tags($item->_value->idValue->_value);
-        $normalizedValue = self::_normalize($idType, $idValue);
-        if (!is_string($idType) or !array_key_exists($idType, $this->idTypeTable)) {  // Error: Invalid idType
-          $id["$idType:$normalizedValue"] = array('idType' => $idType, 'idValue' => $idValue, 'error' => 'invalid idType');  // Use type:value in order to filter out duplicates
-        } else {
-          if (empty($normalizedValue)) {  // If normalizing returns a zero, it means that the id was invalid
-            $id["$idType:$normalizedValue"] = array('idType' => $idType, 'idValue' => $idValue, 'error' => 'invalid id');  // Use type:value in order to filter out duplicates
-          } else {
-            $id["$idType:$normalizedValue"] = array('idType' => $idType, 'idValue' => $normalizedValue);  // Use type:value in order to filter out duplicates
-          }
-        }
-      }
-    }
-
-    // First - delete the existing records with recordId as given in input
-    if ($result = $this->_removeRecordsByRecordId($recordId)) {
-      $xid_error = &$xid_updateIdResponse->_value->error;
-      $xid_error->_value = "could not reach database";
-      $xid_error->_namespace = $this->xmlns['xid'];
-      return $ret;
-    }
-
-    // Then - add all listed materials in <id> tag
-    if (is_array($id)) {
-      foreach ($id as $key=>$item) {
-        if (!isset($item['error'])) {
-          $id[$key]['error'] = $this->_putIdTypeValue($recordId, $clusterId, $item['idType'], $item['idValue']);
-        }
-      }
-    }
-
-    // Format output xml
-    if (!is_array($id) or empty($id)) {
-      $xid_updateIdStatus = &$xid_updateIdResponse->_value->updateIdStatus;
-      $xid_updateIdOk = &$status_item->_value->updateIdOk;
-      $xid_updateIdOk->_namespace = $this->xmlns['xid'];
-      $xid_updateIdStatus = $status_item;
-      $xid_updateIdStatus->_namespace = $this->xmlns['xid'];
-    } else {  // $id IS an array
-      foreach ($id as $item) {
-        $xid_updateIdStatus = &$xid_updateIdResponse->_value->updateIdStatus;
-        unset($status_item);
-        $status_item->_namespace = $this->xmlns['xid'];;
-        $xid_id = &$status_item->_value->id;
-        $xid_id->_namespace = $this->xmlns['xid'];
-        $xid_idType = &$xid_id->_value->idType;
-        $xid_idType->_namespace = $this->xmlns['xid'];
-        $xid_idType->_value = $item['idType'];
-        $xid_idValue = &$xid_id->_value->idValue;
-        $xid_idValue->_namespace = $this->xmlns['xid'];
-        $xid_idValue->_value = $item['idValue'];
-        if (is_string($item['error'])) {
-          $xid_error = &$status_item->_value->error;
-          $xid_error->_namespace = $this->xmlns['xid'];
-          $xid_error->_value = $item['error'];
-        } else {
-          $xid_updateIdOk = &$status_item->_value->updateIdOk;
-          $xid_updateIdOk->_namespace = $this->xmlns['xid'];
-        }
-        $xid_updateIdStatus[] = $status_item;
-      }
-    }
-    return $ret;
-  }
+		verbose::log(DEBUG, "openxid:: updateIdRequest(...);");
+		$xid_updateIdResponse = &$ret->updateIdResponse;
+		$xid_updateIdResponse->_namespace = $this->xmlns['xid'];
+		$xid_error = &$xid_updateIdResponse->_value->error;
+		$xid_error->_value = "Update is not possible when using Solr";
+		$xid_error->_namespace = $this->xmlns['xid'];
+		return $ret;
+	}
 
 }
 
+//*
+//* Local variables:
+//* tab-width: 2
+//* c-basic-offset: 2
+//* End:
+//* vim600: sw=2 ts=2 fdm=marker
+//* vim<600: sw=2 ts=2
+//*/
 ?>
