@@ -12,6 +12,9 @@ wsdl = openxid.wsdl
 ; set to TRUE to expose the create_sample form
 ;show_samples = 1
 
+; path to xml-examples
+xmldir = ./xml
+
 ; validate
 validate['soap_request'] = soap.xsd
 validate['request'] = openxid.xsd
@@ -24,9 +27,6 @@ soapAction['updateIdRequest'] = updateIdRequest
 
 ; prefixes and namespaces
 xmlns['xid'] = http://oss.dbc.dk/ns/openxid
-
-; path to xml-examples
-xmldir = ./xml
 
 ; logfile for verbose output
 logfile = openxid.log
