@@ -79,7 +79,7 @@ aaa_ip_rights['users']['ressource']['openxidget'] = 560
 
 [solr]
 ; Parameters for Solr communication
-solr_server = http://solar-p02.dbc.dk:8080/solr-4.4.0/dbc-index
+solr_server = http://solr_server.right.there
 searchcode['issn'] = dkcclterm.in
 searchcode['ean'] = dkcclterm.ib
 searchcode['isbn'] = dkcclterm.ib
