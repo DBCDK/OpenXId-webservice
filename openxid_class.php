@@ -104,7 +104,7 @@ class openXId extends webServiceServer {
  /** \brief getIdsRequest
   *
   */
-  function getIdsRequest($param) {
+  public function getIdsRequest($param) {
     verbose::log(DEBUG, "openxid:: getIdsRequest(...);");
     $xid_getIdsResponse = &$ret->getIdsResponse;
     $xid_getIdsResponse->_namespace = $this->xmlns['xid'];
@@ -322,7 +322,7 @@ class openXId extends webServiceServer {
  /** \brief updateIdRequest
   *
   */
-  function updateIdRequest($param) {
+  public function updateIdRequest($param) {
     verbose::log(DEBUG, "openxid:: updateIdRequest(...);");
     $xid_updateIdResponse = &$ret->updateIdResponse;
     $xid_updateIdResponse->_namespace = $this->xmlns['xid'];
