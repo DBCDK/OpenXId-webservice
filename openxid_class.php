@@ -34,11 +34,12 @@ class openXId extends webServiceServer {
 
   function __construct($inifile, $silent=false) {
     parent::__construct($inifile);
-    verbose::log(DEBUG, "ini " . $inifile );
+    verbose::log(TRACE, "ini " . $inifile );
     $this->solr_server = $this->config->get_value( "solr_server", "solr" );
     $this->searchcode = $this->config->get_value( "searchcode", "solr" );
     $this->result_fields = $this->config->get_value( "result_set", "solr" );
     $this->curl = new curl();
+    // $this->curl->set_timeout( 5 );
     verbose::log(TRACE, "openxid:: openxid initialized");
 
   }
@@ -117,9 +118,7 @@ class openXId extends webServiceServer {
       return $ret;
     }
 
-    verbose::log(ERROR, "WUT <" . print_r($param, true) . '>' );
     $paramId = is_array($param->id) ? $param->id : array($param->id);
-    verbose::log(ERROR, "WAT <" . print_r($paramId, true) . '>' );
     if (empty($paramId)) {
       $xid_error = &$xid_getIdsResponse->_value->error;
       $xid_error->_value = "invalid id";
@@ -154,6 +153,15 @@ class openXId extends webServiceServer {
       verbose::log(TRACE, 'SEARCH ' . $search_string );
       $result_array = self::do_search($search_string, "unit.id" );
       verbose::log(DEBUG, 'UNITID_RESULT ' . print_r($result_array, true) );
+      $curl_status = $this->curl->get_status();
+
+      if ( $curl_status['errno'] != 0  ) {
+        $xid_error = &$xid_getIdsResponse->_value->error;
+        $xid_error->_value = "could not reach database";
+        $xid_error->_namespace = $this->xmlns['xid'];
+        verbose::log(ERROR, "openxid:: getIdsRequest(...); - could not reach database - curl status : " . print_r( $curl_status, true) );
+        return $ret;
+      }
 
 
       // Uniqing unit.id's
@@ -178,6 +186,13 @@ class openXId extends webServiceServer {
       foreach ( $unit_ids as $tempo ) {
         $result_array = self::do_search($tempo, $this->result_fields);
         verbose::log(DEBUG, 'TERMS_RESULT ' . print_r($result_array, true) );
+        if ( $curl_status['errno'] != 0  ) {
+          $xid_error = &$xid_getIdsResponse->_value->error;
+          $xid_error->_value = "could not reach database";
+          $xid_error->_namespace = $this->xmlns['xid'];
+          verbose::log(ERROR, "openxid:: getIdsRequest(...); - could not reach database - curl status : " . print_r( $curl_status, true) );
+          return $ret;
+        }
 
         $docs = array();
         $docs = $result_array[0]['response']['docs'];
@@ -315,20 +330,6 @@ class openXId extends webServiceServer {
       }
       $xid_getIdResult[] = $xid_get_item;
     }
-    return $ret;
-  }
-
-
- /** \brief updateIdRequest
-  *
-  */
-  public function updateIdRequest($param) {
-    verbose::log(DEBUG, "openxid:: updateIdRequest(...);");
-    $xid_updateIdResponse = &$ret->updateIdResponse;
-    $xid_updateIdResponse->_namespace = $this->xmlns['xid'];
-    $xid_error = &$xid_updateIdResponse->_value->error;
-    $xid_error->_value = "Update is not possible when using Solr";
-    $xid_error->_namespace = $this->xmlns['xid'];
     return $ret;
   }
 
